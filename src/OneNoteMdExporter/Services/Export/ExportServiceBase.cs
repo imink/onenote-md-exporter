@@ -591,9 +591,6 @@ namespace alxnbl.OneNoteMdExporter.Services.Export
             // Track missing images by their attachment ID
             var missingImageIds = new HashSet<string>();
             
-            // Dictionary to map attachment paths to attachment objects for quick lookup
-            var attachmentsByPath = new Dictionary<string, Attachement>(StringComparer.OrdinalIgnoreCase);
-            
             string processImgTag(string tag, bool outputHtmlTag)
             {
                 // http://regexstorm.net/tester
@@ -620,12 +617,6 @@ namespace alxnbl.OneNoteMdExporter.Services.Export
                     page.Attachements.Add(imgAttach);
 
                     EnsureAttachmentFileIsNotUsed(page, imgAttach);
-                }
-
-                // Store in dictionary for later lookup
-                if (!attachmentsByPath.ContainsKey(panDocHtmlImgTagPath))
-                {
-                    attachmentsByPath[panDocHtmlImgTagPath] = imgAttach;
                 }
 
                 // Check if this image is missing
