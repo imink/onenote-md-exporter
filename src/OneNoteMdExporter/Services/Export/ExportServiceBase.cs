@@ -588,6 +588,11 @@ namespace alxnbl.OneNoteMdExporter.Services.Export
         /// <param name="resourceFolderPath">The path to the notebook folder where store attachments</param>
         public void ExtractImagesToResourceFolder(Page page, ref string mdFileContent)
         {
+            // Track missing images by their attachment ID
+            var missingImageIds = new HashSet<string>();
+            
+            // Dictionary to map attachment paths to attachment objects for quick lookup
+            var attachmentsByPath = new Dictionary<string, Attachement>(StringComparer.OrdinalIgnoreCase);
             
             string processImgTag(string tag, bool outputHtmlTag)
             {
@@ -617,6 +622,22 @@ namespace alxnbl.OneNoteMdExporter.Services.Export
                     EnsureAttachmentFileIsNotUsed(page, imgAttach);
                 }
 
+                // Store in dictionary for later lookup
+                if (!attachmentsByPath.ContainsKey(panDocHtmlImgTagPath))
+                {
+                    attachmentsByPath[panDocHtmlImgTagPath] = imgAttach;
+                }
+
+                // Check if this image is missing
+                if (missingImageIds.Contains(imgAttach.Id))
+                {
+                    // Return placeholder for missing image
+                    if (outputHtmlTag)
+                        return "<img src=\"#\" alt=\"missing image\" />";
+                    else
+                        return "![missing image](#)";
+                }
+
                 var attachRef = GetAttachmentMdReference(imgAttach);
                 var refLabel = Path.GetFileNameWithoutExtension(imgAttach.ActualSourceFilePath);
 
@@ -626,6 +647,49 @@ namespace alxnbl.OneNoteMdExporter.Services.Export
                     return $"![{refLabel}]({attachRef})";
             }
 
+            // First pass: identify missing images before any processing
+            foreach (var attach in page.ImageAttachements)
+            {
+                if (!File.Exists(attach.ActualSourceFilePath))
+                {
+                    missingImageIds.Add(attach.Id);
+                    Log.Warning($"Page '{page.GetPageFileRelativePath(AppSettings.MdMaxFileLength)}': Missing image file '{attach.ActualSourceFilePath}'");
+                }
+            }
+
+            // Copy attachments to resource folder, tracking any failures
+            var copyFailedImageIds = new HashSet<string>();
+            foreach (var attach in page.ImageAttachements)
+            {
+                // Skip already-known missing images
+                if (missingImageIds.Contains(attach.Id))
+                {
+                    continue;
+                }
+
+                var attachFilePath = GetAttachmentFilePath(attach);
+                Directory.CreateDirectory(Path.GetDirectoryName(attachFilePath));
+                
+                try
+                {
+                    File.Copy(attach.ActualSourceFilePath, attachFilePath);
+                    File.Delete(attach.ActualSourceFilePath);
+                }
+                catch (Exception ex)
+                {
+                    // If copy/delete fails for any reason, log warning and mark as missing
+                    copyFailedImageIds.Add(attach.Id);
+                    Log.Warning($"Page '{page.GetPageFileRelativePath(AppSettings.MdMaxFileLength)}': Failed to copy/delete image file '{attach.ActualSourceFilePath}': {ex.Message}");
+                }
+            }
+
+            // Combine all missing images
+            foreach (var id in copyFailedImageIds)
+            {
+                missingImageIds.Add(id);
+            }
+
+            // Process image tags and replace with markdown/HTML references or placeholders
             // Match <IMG> tags and any html cell tags arround
             string pattern = @"(?<cellTagStart><(?:td|th)\b[^>]*>(?:(?!<\/(?:td|th)>)[\s\S])*?)?(?<imgTag><img\b[^>]*>)(?<cellTagEnd>(?:(?!<\/(?:td|th)>)[\s\S])*?<\/(?:td|th)>)?";
 
@@ -643,17 +707,6 @@ namespace alxnbl.OneNoteMdExporter.Services.Export
 
                 return $"{cellTagStart.Value}{newImg}{cellTagEnd.Value}";
             });
-
-
-            // Move attachments file into output resource folder and delete tmp file
-            // In case of duplicate files, suffix attachment file name
-            foreach (var attach in page.ImageAttachements)
-            {
-                var attachFilePath = GetAttachmentFilePath(attach);
-                Directory.CreateDirectory(Path.GetDirectoryName(attachFilePath));
-                File.Copy(attach.ActualSourceFilePath, attachFilePath);
-                File.Delete(attach.ActualSourceFilePath);
-            }
 
 
             if (AppSettings.PostProcessingMdImgRef)
