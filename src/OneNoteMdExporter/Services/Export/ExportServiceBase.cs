@@ -668,11 +668,18 @@ namespace alxnbl.OneNoteMdExporter.Services.Export
                 }
 
                 var attachFilePath = GetAttachmentFilePath(attach);
-                Directory.CreateDirectory(Path.GetDirectoryName(attachFilePath));
+                var attachDir = Path.GetDirectoryName(attachFilePath);
+                
+                // Ensure directory exists (handle null case)
+                if (!string.IsNullOrEmpty(attachDir))
+                {
+                    Directory.CreateDirectory(attachDir);
+                }
                 
                 try
                 {
-                    File.Copy(attach.ActualSourceFilePath, attachFilePath);
+                    // Use overwrite to handle cases where file already exists
+                    File.Copy(attach.ActualSourceFilePath, attachFilePath, overwrite: true);
                     File.Delete(attach.ActualSourceFilePath);
                 }
                 catch (Exception ex)
